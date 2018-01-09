@@ -9,8 +9,9 @@
  *	hatching
  *	dotted
  */
+import * as THREE from 'three';
 
-THREE.ShaderToon = {
+export const ShaderToon = {
 
   toon1: {
 

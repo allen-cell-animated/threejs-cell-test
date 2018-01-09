@@ -59,10 +59,6 @@
 
 	<script src="thirdparty/threejs/OrbitControls.js"></script>
 
-	<!-- <script src="thirdparty/threejs/CopyShader.js"></script>
-	<script src="thirdparty/threejs/FXAAShader.js"></script>
-	<script src="thirdparty/threejs/HorizontalTiltShiftShader.js"></script>
-	<script src="thirdparty/threejs/VerticalTiltShiftShader.js"></script> -->
 
 	<script src="thirdparty/threejs/postprocessing/EffectComposer.js"></script>
 	<script src="thirdparty/threejs/postprocessing/RenderPass.js"></script>
@@ -71,7 +67,6 @@
 	<script src="thirdparty/threejs/postprocessing/MaskPass.js"></script>
 	<script src="thirdparty/threejs/postprocessing/SavePass.js"></script>
 
-	<!-- <script src="thirdparty/threejs/MarchingCubes.js"></script> -->
 	<script src="thirdparty/threejs/ShaderToon.js"></script>
 
 	<script src="thirdparty/threejs/Detector.js"></script>
@@ -201,8 +196,8 @@
 
 			// STATS
 
-			stats = new Stats();
-			container.appendChild( stats.dom );
+			// stats = new Stats();
+			// container.appendChild( stats.dom );
 
 			// COMPOSER
 
@@ -376,7 +371,6 @@
 			var createHandler = function( id ) {
 
 				return function() {
-
 					var mat_old = materials[ current_material ];
 					mat_old.h = m_h.getValue();
 					mat_old.s = m_s.getValue();
@@ -451,7 +445,7 @@
 			h = gui.addFolder( "Materials" );
 
 			for ( var m in materials ) {
-
+        console.log(m);
 				effectController[ m ] = createHandler( m );
 				h.add( effectController, m ).name( m );
 
@@ -504,11 +498,10 @@
 
 
 		function animate() {
-
 			requestAnimationFrame( animate );
 
 			render();
-			stats.update();
+			// stats.update();
 
 		}
 
