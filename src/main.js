@@ -7,7 +7,10 @@ class App extends React.Component {
   constructor(props) {
     super(props);
     this.state = {
-      cell: '',
+      membrane: 'cellstl/step_191_Memb.stl',
+      nucleus: 'cellstl/step_191_DNA.stl',
+      structure: 'cellstl/step_191_Alpha tubulin.stl',
+
     };
   }
 
@@ -15,7 +18,9 @@ class App extends React.Component {
     return (
       <div>
         <CellViewer
-          cell={this.state.cell}
+          membrane={this.state.membrane}
+          nucleus={this.state.nucleus}
+          structure={this.state.structure}
         />
       </div>
     );

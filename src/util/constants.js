@@ -1,5 +1,4 @@
 import * as THREE from 'three';
-import { ShaderToon } from '../../thirdparty/threejs/ShaderToon_module';
 
 export const effectController = {
 
@@ -46,7 +45,7 @@ export function createMaterialMap(
 
     matte:
 {
-  m: new THREE.MeshPhongMaterial({ color: 0x353565, specular: 0x111111, shininess: 1 }),
+  m: new THREE.MeshPhongMaterial({ color: 0x003056, specular: 0x111111, shininess: 1 }),
   h: 0,
   s: 0.5,
   l: 1,
@@ -63,7 +62,7 @@ export function createMaterialMap(
     colors:
 {
   m: new THREE.MeshPhongMaterial({
-    color: 0xffffff, specular: 0xffffff, shininess: 2, vertexColors: THREE.VertexColors,
+    color: 0x353565, specular: 0xffffff, shininess: 1, vertexColors: THREE.VertexColors,
   }),
   h: 0,
   s: 0,
@@ -126,21 +125,4 @@ export function createMaterialMap(
 },
 
   };
-}
-
-export function createShaderMaterial(id, light, ambientLight) {
-  const shader = ShaderToon[id];
-
-  const u = THREE.UniformsUtils.clone(shader.uniforms);
-
-  const vs = shader.vertexShader;
-  const fs = shader.fragmentShader;
-
-  const material = new THREE.ShaderMaterial({ uniforms: u, vertexShader: vs, fragmentShader: fs });
-  material.uniforms.uDirLightPos.value = light.position;
-  material.uniforms.uDirLightColor.value = light.color;
-
-
-  material.uniforms.uAmbientLightColor.value = ambientLight.color;
-  return material;
 }
