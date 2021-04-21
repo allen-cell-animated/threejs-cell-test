@@ -1,0 +1,663 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<title>three.js webgl - marching cubes</title>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+	<style>
+		body {
+		  color: #fff;
+		  font-family: Monospace;
+		  font-size: 13px;
+		  text-align: center;
+
+		  background-color: #000;
+		  margin: 0px;
+		  overflow: hidden;
+		}
+
+		#info {
+		  color: #000000;
+		  position: absolute;
+		  top: 0px;
+		  left: 100px;
+		  padding: 5px;
+		}
+
+		#info li:hover {
+			color: #ff0000;
+		}
+		#info li {
+			color: #000000;			
+		}
+
+		a {
+		  color: gold;
+		}
+
+		#oldie {
+		  font-family: monospace;
+		  font-size: 13px;
+
+		  text-align: center;
+		  background: rgb(0, 0, 50);
+		  color: #fff;
+		  padding: 1em;
+
+		  width: 475px;
+		  margin: 5em auto 0;
+
+		  display: none;
+		}
+	</style>
+</head>
+
+<body>
+
+	<div id="container"></div>
+	<div id="info">
+		<a href="http://threejs.org" target="_blank" rel="noopener">three.js</a> -
+		cell viewer
+		<br/>
+		<ul id="structures" style="list-style: none;">
+		</ul>
+
+	</div>
+
+	<script src="thirdparty/threejs/three.js"></script>
+
+	<script src="thirdparty/threejs/OBJLoader.js"></script>
+	<script src="thirdparty/threejs/STLLoader.js"></script>
+
+	<script src="thirdparty/threejs/OrbitControls.js"></script>
+
+	<script src="thirdparty/threejs/postprocessing/EffectComposer.js"></script>
+	<script src="thirdparty/threejs/postprocessing/RenderPass.js"></script>
+	<script src="thirdparty/threejs/postprocessing/BloomPass.js"></script>
+	<script src="thirdparty/threejs/postprocessing/ShaderPass.js"></script>
+	<script src="thirdparty/threejs/postprocessing/MaskPass.js"></script>
+	<script src="thirdparty/threejs/postprocessing/SavePass.js"></script>
+
+	<script src="thirdparty/threejs/ShaderToon.js"></script>
+
+	<script src="thirdparty/threejs/Detector.js"></script>
+	<script src="thirdparty/stats.min.js"></script>
+	<script src="thirdparty/dat.gui.min.js"></script>
+
+
+	<script>
+		if ( ! Detector.webgl ) Detector.addGetWebGLMessage();
+
+		var MARGIN = 0;
+
+		var SCREEN_WIDTH = window.innerWidth;
+		var SCREEN_HEIGHT = window.innerHeight - 2 * MARGIN;
+
+		var container, stats;
+
+		var camera, scene, renderer;
+
+		var mesh, texture, geometry, materials, material, current_material;
+
+		var light, pointLight, ambientLight;
+
+		var effect, resolution, numBlobs;
+
+		var composer, effectFXAA, hblur, vblur;
+
+		var effectController;
+
+		var mouse, raycaster, hoveredObject = null, raycastEnabled = true;
+
+		//var cell_membrane, cell_nucleus;
+		var cell_membrane_mat, cell_nucleus_mat;
+		var cell_objs = {};
+		var bbox = new THREE.Box3();
+		var dataset = [
+			"stl/step_191_Alpha actinin.stl", "Alpha actinin", [2,19,124],
+			"stl/step_191_Alpha tubulin.stl", "Alpha tubulin", [128,128,128],
+			"stl/step_191_Beta actin.stl", "Beta actin", [127,126,29],
+			"stl/step_191_Desmoplakin.stl", "Desmoplakin", [121,21,125],
+			"stl/step_191_DNA.stl", "DNA", [44,126,24],
+			"stl/step_191_Fibrillarin.stl", "Fibrillarin", [44,127,127],
+			"stl/step_191_Lamin B1.stl", "Lamin B1", [242,11,29],
+			"stl/step_191_Memb.stl", "Memb", [120,2,9],
+			"stl/step_191_Myosin IIB.stl", "Myosin IIB", [94,251,58],
+			"stl/step_191_Sec61 beta.stl", "Sec61 beta", [9,49,249],
+			"stl/step_191_ST6GAL1.stl", "ST6GAL1", [255,255,255],
+			"stl/step_191_Tom20.stl", "Tom20", [255,252,66],
+			"stl/step_191_ZO1.stl", "ZO1", [242,52,250],
+		];
+
+		var time = 0;
+		var clock = new THREE.Clock();
+
+		init();
+		animate();
+
+		function preventRaycast() {
+			raycastEnabled = false;
+		}
+		function enableRaycast() {
+			raycastEnabled = true;
+		}
+		function init() {
+
+			container = document.getElementById( 'container' );
+
+			// CAMERA
+
+			camera = new THREE.PerspectiveCamera( 45, SCREEN_WIDTH / SCREEN_HEIGHT, 0.1, 2 );
+			camera.position.set( -0.5, 0.5, 1 );
+
+			// SCENE
+
+			scene = new THREE.Scene();
+			scene.background = new THREE.Color( 0xFFFFFF );
+
+			// LIGHTS
+
+			light = new THREE.DirectionalLight( 0xffffff );
+			light.position.set( 0.5, 0.5, 1 );
+			scene.add( light );
+
+			pointLight = new THREE.PointLight( 0x888888 );
+			pointLight.position.set( 0, 0, 100 );
+			scene.add( pointLight );
+
+			ambientLight = new THREE.AmbientLight( 0x080808 );
+			scene.add( ambientLight );
+
+			// MATERIALS
+
+			materials = generateMaterials();
+
+			// LOAD MESHES
+
+			var manager = new THREE.LoadingManager();
+			manager.onProgress = function ( item, loaded, total ) {
+				console.log( item, loaded, total );
+			};
+			var onProgress = function ( xhr ) {
+				if ( xhr.lengthComputable ) {
+					var percentComplete = xhr.loaded / xhr.total * 100;
+					console.log( Math.round(percentComplete, 2) + '% downloaded' );
+				}
+			};
+			var onError = function ( xhr ) {
+				console.log("MESH LOAD ERROR");
+			};
+
+			for (var i = 0; i < dataset.length/3; ++i) {
+				let filename = dataset[i*3];
+				let proteinname = dataset[i*3+1];
+				let colorarr = dataset[i*3+2];
+				let color = new THREE.Color(colorarr[0]/255.0, colorarr[1]/255.0, colorarr[2]/255.0);
+				let loaderstl = new THREE.STLLoader( manager );
+				loaderstl.load( filename, function ( geometry ) {
+					var rawgeometry = new THREE.Geometry().fromBufferGeometry( geometry );
+					rawgeometry.mergeVertices();
+					rawgeometry.computeVertexNormals();
+					geometry = new THREE.BufferGeometry().fromGeometry(rawgeometry);
+					var m;
+					if (proteinname === "Memb") {
+						m = cell_membrane_mat;
+					}
+					else {
+						m = new THREE.MeshPhongMaterial( { color: color, specular: 0x111111, shininess: 30 } );
+					}
+					var object = new THREE.Mesh(geometry, m);
+					cell_objs[proteinname] = object;
+					object.name = proteinname;
+					var box = new THREE.Box3().setFromObject(object);
+					bbox.union(box);
+					console.log(bbox);
+
+					//object.position.y = - 95;
+					scene.add( object );
+				}, onProgress, onError );
+			}
+
+			// RENDERER
+
+			renderer = new THREE.WebGLRenderer();
+			renderer.setPixelRatio( window.devicePixelRatio );
+			renderer.setSize( SCREEN_WIDTH, SCREEN_HEIGHT );
+
+			renderer.domElement.style.position = "absolute";
+			renderer.domElement.style.top = MARGIN + "px";
+			renderer.domElement.style.left = "0px";
+
+			container.appendChild( renderer.domElement );
+
+			//
+
+			renderer.gammaInput = true;
+			renderer.gammaOutput = true;
+
+			// CONTROLS
+
+			controls = new THREE.OrbitControls( camera, renderer.domElement );
+			controls.addEventListener( 'start', preventRaycast );
+			controls.addEventListener( 'end', enableRaycast );
+
+			// STATS
+
+			stats = new Stats();
+			container.appendChild( stats.dom );
+
+			// COMPOSER
+
+			mouse = new THREE.Vector2();
+			raycaster = new THREE.Raycaster();
+
+			// GUI
+
+			setupGui();
+
+			// EVENTS
+
+			window.addEventListener( 'resize', onWindowResize, false );
+			window.addEventListener( 'mousemove', onDocumentMouseMove, false );
+		}
+
+		//
+
+		function onWindowResize( event ) {
+
+			SCREEN_WIDTH = window.innerWidth;
+			SCREEN_HEIGHT = window.innerHeight - 2 * MARGIN;
+
+			camera.aspect = SCREEN_WIDTH / SCREEN_HEIGHT;
+			camera.updateProjectionMatrix();
+
+			renderer.setSize( SCREEN_WIDTH, SCREEN_HEIGHT );
+			//composer.setSize( SCREEN_WIDTH, SCREEN_HEIGHT );
+
+		}
+
+		function generateMaterials() {
+
+			// environment map
+
+			var path = "textures/cube/SwedishRoyalCastle/";
+			var format = '.jpg';
+			var urls = [
+				path + 'px' + format, path + 'nx' + format,
+				path + 'py' + format, path + 'ny' + format,
+				path + 'pz' + format, path + 'nz' + format
+			];
+
+			// toons
+
+			var toonMaterial1 = createShaderMaterial( "toon1", light, ambientLight ),
+			toonMaterial2 = createShaderMaterial( "toon2", light, ambientLight ),
+			hatchingMaterial = createShaderMaterial( "hatching", light, ambientLight ),
+			hatchingMaterial2 = createShaderMaterial( "hatching", light, ambientLight ),
+			dottedMaterial = createShaderMaterial( "dotted", light, ambientLight ),
+			dottedMaterial2 = createShaderMaterial( "dotted", light, ambientLight );
+
+			var materials = {
+
+			"matte" :
+			{
+				m: new THREE.MeshPhongMaterial( { color: 0x353565, specular: 0x111111, shininess: 1 } ),
+				h: 0, s: 0.5, l: 1
+			},
+
+			"flat" :
+			{
+				m: new THREE.MeshPhongMaterial( { color: 0x000000, specular: 0x111111, shininess: 1, flatShading: true } ),
+				h: 0, s: 0, l: 1
+			},
+
+			"colors" :
+			{
+				m: new THREE.MeshPhongMaterial( { color: 0xffffff, specular: 0xffffff, shininess: 2, vertexColors: THREE.VertexColors } ),
+				h: 0, s: 0, l: 1
+			},
+
+			"plastic" :
+			{
+				m: new THREE.MeshPhongMaterial( { color: 0x000000, specular: 0x888888, shininess: 250 } ),
+				h: 0.6, s: 0.8, l: 0.1
+			},
+
+			"toon1"  :
+			{
+				m: toonMaterial1,
+				h: 0.2, s: 1, l: 0.15
+			},
+
+			"toon2" :
+			{
+				m: toonMaterial2,
+				h: 0.4, s: 1, l: 0.75
+			},
+
+			"hatching" :
+			{
+				m: hatchingMaterial,
+				h: 0.2, s: 1, l: 0.9
+			},
+
+			"hatching2" :
+			{
+				m: hatchingMaterial2,
+				h: 0.0, s: 0.8, l: 0.5
+			},
+
+			"dotted" :
+			{
+				m: dottedMaterial,
+				h: 0.2, s: 1, l: 0.9
+			},
+
+			"dotted2" :
+			{
+				m: dottedMaterial2,
+				h: 0.1, s: 1, l: 0.5
+			}
+
+			};
+
+			cell_membrane_mat = materials["toon1"].m;
+			cell_nucleus_mat = materials["matte"].m;
+
+			cell_membrane_mat.transparent = true;
+			cell_membrane_mat.opacity = 0.35;
+			cell_membrane_mat.uniforms["opacity"] = { type:'f', value:0.15};
+
+			return materials;
+
+		}
+
+		function createShaderMaterial( id, light, ambientLight ) {
+
+			var shader = THREE.ShaderToon[ id ];
+
+			var u = THREE.UniformsUtils.clone( shader.uniforms );
+
+			var vs = shader.vertexShader;
+			var fs = shader.fragmentShader;
+
+			var material = new THREE.ShaderMaterial( { uniforms: u, vertexShader: vs, fragmentShader: fs } );
+
+			material.uniforms.uDirLightPos.value = light.position;
+			material.uniforms.uDirLightColor.value = light.color;
+
+			material.uniforms.uAmbientLightColor.value = ambientLight.color;
+
+
+			return material;
+
+		}
+
+		//
+		function resetMaterial(key) {
+			var c = effectController[key+'_Color'];
+			cell_objs[key].material.color = new THREE.Color(c[0]/255.0, c[1]/255.0, c[2]/255.0);
+			cell_objs[key].material.transparent = key === "Memb" ? true : false;
+		}
+		function fadeMaterial(key) {
+			cell_objs[key].material.color = new THREE.Color(0.15, 0.15, 0.15);
+			cell_objs[key].material.transparent = true;
+			cell_objs[key].material.opacity = 0.10;
+		}
+		function doHighlight(name) {
+			// color this and turn all others grey.
+			for (key in cell_objs) {
+				if (name !== key) {
+					fadeMaterial(key);
+				}
+				else {
+					resetMaterial(key);
+				}
+			}
+			console.log("hightlighted "+ name);
+		}
+		function dehighlight() {
+			for (key in cell_objs) {
+				resetMaterial(key);
+			}
+		}
+
+		function setupGui() {
+
+			var createHandler = function( id ) {
+
+				return function() {
+
+					var mat_old = materials[ current_material ];
+					mat_old.h = m_h.getValue();
+					mat_old.s = m_s.getValue();
+					mat_old.l = m_l.getValue();
+
+					current_material = id;
+
+					var mat = materials[ id ];
+
+					m_h.setValue( mat.h );
+					m_s.setValue( mat.s );
+					m_l.setValue( mat.l );
+
+				};
+
+			};
+
+			effectController = {
+
+				material: "shiny",
+
+				speed: 1.0,
+				numBlobs: 10,
+				resolution: 28,
+				isolation: 80,
+
+				floor: true,
+				wallx: false,
+				wallz: false,
+
+				hue: 0.0,
+				saturation: 0.8,
+				lightness: 0.1,
+				alpha: 0.5,
+
+				lhue: 0.04,
+				lsaturation: 1.0,
+				llightness: 0.5,
+
+				lx: 0.5,
+				ly: 0.5,
+				lz: 1.0,
+
+				postprocessing: false,
+
+				dummy: function() {
+				}
+
+			};
+
+			var h, m_h, m_s, m_l;
+
+			var gui = new dat.GUI();
+
+			// material (type)
+			for (var i = 0; i < dataset.length/3; ++i) {
+				let filename = dataset[i*3];
+				let proteinname = dataset[i*3+1];
+				let colorarr = dataset[i*3+2];
+
+				// checkbox
+				effectController[proteinname] = true;
+				gui.add(effectController, proteinname).onChange(function(newValue) {
+					if (cell_objs[proteinname]) {
+						cell_objs[proteinname].visible = newValue;
+					}
+				});
+			}
+			for (var i = 0; i < dataset.length/3; ++i) {
+				let filename = dataset[i*3];
+				let proteinname = dataset[i*3+1];
+				let colorarr = dataset[i*3+2];
+
+				// color picker
+				effectController[proteinname+'_Color'] = colorarr;
+				gui.addColor(effectController, proteinname+'_Color').onChange(function(newValue) {
+					if (cell_objs[proteinname]) {
+						cell_objs[proteinname].material.color = new THREE.Color(newValue[0]/255.0, newValue[1]/255.0, newValue[2]/255.0);
+					}
+				});
+
+				// add a list entry
+				var ul = document.getElementById("structures");
+				var li = document.createElement("li");
+				li.appendChild(document.createTextNode(proteinname));
+				li.addEventListener('mouseover', function() { doHighlight(proteinname); });
+    			li.addEventListener('mouseout', function() { dehighlight(); });				
+				ul.appendChild(li);
+			}
+
+
+			h = gui.addFolder( "Materials" );
+
+			for ( var m in materials ) {
+
+				effectController[ m ] = createHandler( m );
+				h.add( effectController, m ).name( m );
+
+			}
+
+			// material (color)
+
+			h = gui.addFolder( "Material color" );
+
+			m_h = h.add( effectController, "hue", 0.0, 1.0, 0.025 );
+			m_s = h.add( effectController, "saturation", 0.0, 1.0, 0.025 );
+			m_l = h.add( effectController, "lightness", 0.0, 1.0, 0.025 );
+			m_a = h.add( effectController, "alpha", 0.0, 1.0, 0.025 );
+
+			// light (point)
+
+			h = gui.addFolder( "Point light color" );
+
+			h.add( effectController, "lhue", 0.0, 1.0, 0.025 ).name("hue");
+			h.add( effectController, "lsaturation", 0.0, 1.0, 0.025 ).name("saturation");
+			h.add( effectController, "llightness", 0.0, 1.0, 0.025 ).name("lightness");
+
+			// light (directional)
+
+			h = gui.addFolder( "Directional light orientation" );
+
+			h.add( effectController, "lx", -1.0, 1.0, 0.025 ).name("x");
+			h.add( effectController, "ly", -1.0, 1.0, 0.025 ).name("y");
+			h.add( effectController, "lz", -1.0, 1.0, 0.025 ).name("z");
+
+			// simulation
+
+			h = gui.addFolder( "Simulation" );
+
+			h.add( effectController, "speed", 0.1, 8.0, 0.05 );
+			h.add( effectController, "numBlobs", 1, 50, 1 );
+			h.add( effectController, "resolution", 14, 100, 1 );
+			h.add( effectController, "isolation", 10, 300, 1 );
+
+			h.add( effectController, "floor" );
+			h.add( effectController, "wallx" );
+			h.add( effectController, "wallz" );
+
+			// rendering
+
+			h = gui.addFolder( "Rendering" );
+			h.add( effectController, "postprocessing" );
+
+		}
+
+
+		function animate() {
+
+			requestAnimationFrame( animate );
+
+			render();
+			stats.update();
+
+		}
+
+		function onDocumentMouseMove( event ) {
+			event.preventDefault();
+			mouse.x = ( event.clientX / window.innerWidth ) * 2 - 1;
+			mouse.y = - ( event.clientY / window.innerHeight ) * 2 + 1;
+		}
+
+		function render() {
+
+			var delta = clock.getDelta();
+
+			time += delta * effectController.speed * 0.5;
+
+			// marching cubes
+
+			if ( effectController.resolution !== resolution ) {
+
+				resolution = effectController.resolution;
+				//effect.init( Math.floor( resolution ) );
+
+			}
+
+			// hit testing
+			if (raycastEnabled) {
+				raycaster.setFromCamera( mouse, camera );
+			
+				// turn off membrane for hit testing
+				var oldMembVis = false;
+				if (cell_objs["Memb"]) {
+					oldMembVis = cell_objs["Memb"].visible;
+					cell_objs["Memb"].visible = false;
+				}
+
+				var intersects = raycaster.intersectObjects( scene.children );
+				
+				// turn on membrane again if it was visible before.
+				if (cell_objs["Memb"]) {
+					cell_objs["Memb"].visible = oldMembVis;
+				}
+
+				if (intersects && intersects.length) {
+					if (hoveredObject !== intersects[0].object) {
+						hoveredObject = intersects[0].object;
+						doHighlight(hoveredObject.name);
+						// color this and turn all others grey.
+					}
+				}
+				else {
+					if (hoveredObject) {
+						// restore all other colors.  ideally you don't have to do this every single time.
+						dehighlight();
+						hoveredObject = null;
+					}
+				}
+			}
+
+			// materials
+
+			// lights
+
+			light.position.set( effectController.lx, effectController.ly, effectController.lz );
+			light.position.normalize();
+
+			pointLight.color.setHSL( effectController.lhue, effectController.lsaturation, effectController.llightness );
+
+			// render
+
+			renderer.clear();
+			renderer.render( scene, camera );
+
+//			}
+
+		}
+/////////////////////////
+
+</script>
+
+</body>
+</html>
